@@ -8,3 +8,12 @@
 
 # Local credentials
 .env
+
+# Runtime state, credentials, and raw action data
+.venv/
+__pycache__/
+*.py[cod]
+data/
+runtime/
+session-state/
+action-logs/

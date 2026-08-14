@@ -1,0 +1,47 @@
+[project]
+name = "fantasy-football-agent-manager"
+version = "0.1.0"
+description = "Autonomous fantasy football team-management service."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Private" }
+authors = [{ name = "Ben Kearsley" }]
+dependencies = [
+    "espn-api>=0.44,<1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17,<2",
+    "pytest>=8.4,<9",
+    "ruff>=0.12,<0.13",
+]
+
+[project.scripts]
+fantasy-football = "fantasy_football:main"
+fantasy-football-session = "fantasy_football.session:main"
+fantasy-football-onboard = "fantasy_football.onboarding:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fantasy_football"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src", "tests"]
