@@ -5,6 +5,13 @@
 
 Use Beads (`bd`) for durable task tracking in repositories that include it. Use the `beads` skill at `.agents/skills/beads/SKILL.md` (project install) or `~/.agents/skills/beads/SKILL.md` (global install) for Beads workflow guidance, then use the `bd` CLI for issue operations.
 
+## Canon And Source Of Truth
+
+- `CANONICAL_SPEC.md` is the single source of truth for the fantasy football agent team.
+- Treat changes to the spec as deliberate direction changes, not routine implementation edits.
+- Keep implementation notes, working decisions, and operational details in Beads rather than the spec.
+- If a proposed change belongs in the spec, make it only after confirming the direction is materially changing.
+
 ### Quick Reference
 
 ```bash
