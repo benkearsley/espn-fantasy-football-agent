@@ -60,3 +60,22 @@ Polling integrations should use `ReadHealthMonitor` around the reader. It
 retries transient failures with bounded backoff, fails closed on stale or
 incomplete snapshots, and emits deduplicated `lost_access`, `service_failure`,
 and `recovered` events for the future Telegram health channel.
+
+## Telegram control plane
+
+Telegram credentials and the allowlisted account ID are runtime-only values:
+
+```sh
+export FFM_TELEGRAM_BOT_TOKEN='...'
+export FFM_TELEGRAM_ALLOWED_USER_ID='123456789'
+export FFM_TELEGRAM_CHAT_ID='123456789'  # optional default notification chat
+```
+
+`fantasy_football.telegram.TelegramService` uses Bot API long polling and
+`CommandRouter` accepts only the configured user. It supports `status`, `run`,
+`approve`, `veto`, `pause`, `resume`, `why`, and the safely reserved `draft`
+command. Proposed actions carry an opaque identifier and UTC expiry. The
+current service is intentionally read-only: approvals are recorded as safe
+stubs until a separately gated ESPN write adapter exists. Health events from
+`ReadHealthMonitor` can be sent with `send_health_event`; repeated failures are
+already deduplicated by the monitor.
