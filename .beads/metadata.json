@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "fantasy_football",
+  "project_id": "17d68373-34a7-44f0-928c-e9584357cfff"
+}
