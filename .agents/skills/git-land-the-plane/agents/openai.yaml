@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Land the Plane"
+  short_description: "End-of-session git landing workflow"
+  default_prompt: "Use $git-land-the-plane to land the repo cleanly after this session."

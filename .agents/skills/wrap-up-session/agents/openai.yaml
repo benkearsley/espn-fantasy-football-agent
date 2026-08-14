@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wrap Up Session"
+  short_description: "Orchestrate the end-of-session landing flow"
+  default_prompt: "Use $wrap-up-session to finish the session, note findings, and then land the plane."
