@@ -61,6 +61,21 @@ retries transient failures with bounded backoff, fails closed on stale or
 incomplete snapshots, and emits deduplicated `lost_access`, `service_failure`,
 and `recovered` events for the future Telegram health channel.
 
+## ESPN action foundation
+
+`fantasy_football.execution` contains the provider-isolated, fake-tested write
+foundation. `ActionAuthorizer` is default-off and checks pause state, authorized
+approval and expiry, and a fresh precondition fingerprint before the injected
+browser factory can run. `PlaywrightESPNActionExecutor` reserves idempotency
+keys, records immutable season-partitioned JSONL events, refreshes through an
+injected verification port, and fails closed to human review on timeout,
+navigation failure, or an unverifiable postcondition.
+
+This issue adds no authenticated ESPN mutation or selectors. Browser ports and
+verification predicates remain fakes until the action-specific lineup, waiver,
+and trade work is implemented. Evidence is bounded and redacted before it is
+stored; raw network payloads are outside the contract.
+
 ## Telegram control plane
 
 Telegram credentials and the allowlisted account ID are runtime-only values:
