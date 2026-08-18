@@ -47,6 +47,13 @@ def build_summary(
             "transactions": len(snapshot.transactions),
             "free_agents": len(snapshot.free_agents),
         },
+        "player_kickoffs": [
+            {
+                "player_id": kickoff.player_id,
+                "kickoff_at": kickoff.kickoff_at.isoformat(),
+            }
+            for kickoff in snapshot.player_kickoffs
+        ],
         "current_week": snapshot.status.current_week,
         "season_state": snapshot.status.season_state,
         "deadlines": [deadline.name for deadline in snapshot.status.deadlines],

@@ -9,17 +9,18 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC
 from enum import StrEnum
 from typing import Protocol
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .contracts import LeagueSnapshot
+from .decisions import PendingAction
 from .health import HealthEvent
+from .workflows import CommandWorkflow
 
 
 class TelegramConfigurationError(ValueError):
@@ -117,24 +118,6 @@ class ParsedCommand:
     args: str
 
 
-@dataclass(frozen=True, slots=True)
-class PendingAction:
-    kind: str
-    summary: str
-    expires_at: datetime
-    action_id: str = ""
-
-    def __post_init__(self) -> None:
-        if self.expires_at.tzinfo is None:
-            raise ValueError("action expiry must be timezone-aware")
-        if not self.action_id:
-            object.__setattr__(self, "action_id", "act-" + secrets.token_hex(5))
-
-    def reference(self) -> str:
-        expiry = self.expires_at.astimezone(UTC).isoformat()
-        return f"{self.action_id} (expires {expiry})"
-
-
 def parse_command(text: str) -> ParsedCommand | None:
     parts = text.strip().split(maxsplit=1)
     if not parts:
@@ -148,24 +131,16 @@ def parse_command(text: str) -> ParsedCommand | None:
 
 
 class CommandRouter:
-    """Allowlisted command handling with read-only action safeguards."""
+    """Allowlist Telegram input and delegate all work to persistent workflows."""
 
     def __init__(
         self,
         allowed_user_id: int,
         *,
-        status: Callable[[], str] = lambda: "Status unavailable.",
-        run: Callable[[], str] = lambda: "Monitoring cycle queued.",
-        why: Callable[[], str] = lambda: "No recommendation is currently available.",
-        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        workflows: CommandWorkflow,
     ) -> None:
         self.allowed_user_id = allowed_user_id
-        self._status, self._run, self._why, self._now = status, run, why, now
-        self._paused = False
-        self._actions: dict[str, PendingAction] = {}
-
-    def add_action(self, action: PendingAction) -> None:
-        self._actions[action.action_id] = action
+        self._workflows = workflows
 
     def handle(self, user_id: int, text: str) -> str | None:
         if user_id != self.allowed_user_id:
@@ -178,32 +153,28 @@ class CommandRouter:
             )
         command, args = parsed.command, parsed.args.strip()
         if command is Command.STATUS:
-            return self._status()
+            return self._workflows.status()
         if command is Command.RUN:
-            return self._run()
+            return self._workflows.run()
         if command is Command.WHY:
-            return self._why()
+            return self._workflows.why(args)
         if command is Command.PAUSE:
-            self._paused = True
-            return "ESPN writes paused; monitoring continues."
+            return self._workflows.pause()
         if command is Command.RESUME:
-            self._paused = False
-            return "ESPN writes resumed (no write adapter is enabled)."
+            return self._workflows.resume()
         if command is Command.DRAFT:
             return "Draft control is reserved for a future season."
         if command is Command.VETO:
-            return "Veto recorded." if args else "Usage: veto <reason>"
+            action_id, reason = _action_and_reason(args)
+            return self._workflows.veto(action_id, reason, actor_id=user_id)
         if command is Command.APPROVE:
-            return self._approve(args)
+            return self._workflows.approve(args, actor_id=user_id)
         return "Command safely stubbed."
 
-    def _approve(self, action_id: str) -> str:
-        action = self._actions.get(action_id)
-        if not action:
-            return "No pending action matches that identifier."
-        if action.expires_at <= self._now():
-            return f"{action_id} has expired; no action taken."
-        return f"Approval recorded for {action_id}; ESPN writes are not enabled."
+
+def _action_and_reason(args: str) -> tuple[str, str]:
+    parts = args.split(maxsplit=1)
+    return (parts[0], parts[1] if len(parts) == 2 else "") if parts else ("", "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,7 +274,11 @@ def format_daily_digest(
     pending = list(actions)
     if pending:
         lines.append("Pending actions:")
-        lines.extend(f"- {action.summary} [{action.reference()}]" for action in pending)
+        lines.extend(
+            f"- {action.summary} [{action.action_id} "
+            f"(expires {action.expires_at.astimezone(UTC).isoformat()})]"
+            for action in pending
+        )
     else:
         lines.append("No pending approvals.")
     return "\n".join(lines)

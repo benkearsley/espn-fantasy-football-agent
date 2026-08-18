@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -19,6 +19,7 @@ from .contracts import (
     LeagueStatus,
     Matchup,
     Player,
+    PlayerKickoff,
     RosterEntry,
     ScoringRule,
     Team,
@@ -96,8 +97,10 @@ class EspnApiReader(ESPNLeagueReader):
 
     def _snapshot_from_league(self, league: LeagueLike) -> LeagueSnapshot:
         try:
+            current_week = int(league.current_week)
             settings = _settings(league, self._config)
-            teams = tuple(_team(team) for team in _items(league, "teams"))
+            provider_teams = _items(league, "teams")
+            teams = tuple(_team(team) for team in provider_teams)
             matchups = _matchups(league)
             draft_picks = tuple(_draft_pick(pick) for pick in _items(league, "draft"))
             transactions = tuple(
@@ -123,7 +126,7 @@ class EspnApiReader(ESPNLeagueReader):
                 for player in _call(league, "free_agents", size=self._free_agent_limit)
             )
             status = LeagueStatus(
-                current_week=int(league.current_week),
+                current_week=current_week,
                 season_state=str(getattr(league, "season_state", "in_season")),
                 deadlines=_deadlines(league),
             )
@@ -136,6 +139,7 @@ class EspnApiReader(ESPNLeagueReader):
                 transactions=transactions,
                 free_agents=free_agents,
                 source_timestamp=datetime.now(UTC),
+                player_kickoffs=_player_kickoffs(provider_teams, current_week),
             )
         except (AttributeError, KeyError, TypeError, ValueError, IndexError) as exc:
             raise ESPSchemaError(
@@ -258,6 +262,103 @@ def _free_agent(player: Any) -> FreeAgent:
         ownership_percent=getattr(player, "percent_owned", None),
         waiver_status=getattr(player, "active_status", None),
     )
+
+
+def _player_kickoffs(teams: list[Any], current_week: int) -> tuple[PlayerKickoff, ...]:
+    """Map already-loaded roster schedules into safe, normalized kickoff facts.
+
+    ``espn-api`` exposes ``Player.schedule`` as a mapping of scoring period to
+    ``{"team": ..., "date": ...}`` dictionaries.  It builds the date with
+    ``datetime.fromtimestamp`` and therefore returns a local, naive datetime.
+    Calling ``astimezone`` on a naive datetime applies the process' actual local
+    timezone before converting to UTC.  Aware provider values are converted
+    directly.  No schedule request is made here.
+    """
+
+    by_player: dict[int, set[datetime]] = {}
+    invalid_players: set[int] = set()
+    for team in teams:
+        for provider_player in getattr(team, "roster", ()):
+            player_id = _positive_player_id(provider_player)
+            if player_id is None:
+                continue
+            entries = _schedule_entries_for_week(
+                getattr(provider_player, "schedule", None), current_week
+            )
+            if entries is None:
+                continue
+            if not entries:
+                invalid_players.add(player_id)
+                continue
+            for entry in entries:
+                kickoff = _schedule_kickoff(entry)
+                if kickoff is None:
+                    invalid_players.add(player_id)
+                    continue
+                by_player.setdefault(player_id, set()).add(kickoff)
+
+    facts: list[PlayerKickoff] = []
+    for player_id, kickoffs in by_player.items():
+        # More than one distinct current-week kickoff is ambiguous.  Identical
+        # facts from duplicate roster entries are safe and are emitted once.
+        if player_id in invalid_players or len(kickoffs) != 1:
+            continue
+        kickoff = next(iter(kickoffs))
+        try:
+            facts.append(PlayerKickoff(player_id, kickoff))
+        except ValueError:
+            # A provider object must never make a snapshot unsafe to consume.
+            continue
+    return tuple(sorted(facts, key=lambda fact: (fact.player_id, fact.kickoff_at)))
+
+
+def _positive_player_id(provider_player: Any) -> int | None:
+    try:
+        player_id = int(provider_player.playerId)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return player_id if player_id > 0 else None
+
+
+def _schedule_entries_for_week(
+    schedule: Any, current_week: int
+) -> tuple[Any, ...] | None:
+    """Return provider schedule values whose key identifies ``current_week``."""
+
+    if not isinstance(schedule, Mapping):
+        return None
+
+    matching: list[Any] = []
+    found_week = False
+    for key, value in schedule.items():
+        if isinstance(key, bool):
+            continue
+        if key == current_week or key == str(current_week):
+            found_week = True
+            if isinstance(value, Mapping):
+                matching.append(value)
+            elif isinstance(value, list | tuple):
+                matching.extend(value)
+            else:
+                return ()
+    return tuple(matching) if found_week else None
+
+
+def _schedule_kickoff(entry: Any) -> datetime | None:
+    if not isinstance(entry, Mapping):
+        return None
+    team = entry.get("team")
+    if isinstance(team, str) and team.strip().casefold() == "bye":
+        return None
+    value = entry.get("date")
+    if not isinstance(value, datetime):
+        return None
+    try:
+        if value.tzinfo is not None and value.utcoffset() is None:
+            return None
+        return value.astimezone(UTC)
+    except (OverflowError, OSError, TypeError, ValueError):
+        return None
 
 
 def _deadlines(league: Any) -> tuple[Deadline, ...]:

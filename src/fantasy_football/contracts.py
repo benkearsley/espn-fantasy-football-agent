@@ -70,6 +70,25 @@ class Deadline:
 
 
 @dataclass(frozen=True, slots=True)
+class PlayerKickoff:
+    """A normalized player game lock time, when the reader can establish one.
+
+    ESPN readers that cannot safely provide this fact leave ``LeagueSnapshot``'s
+    optional collection empty.  Approval policy must then fail closed rather
+    than infer a lock time from free-form recommendation text.
+    """
+
+    player_id: int
+    kickoff_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.player_id <= 0:
+            raise ValueError("player kickoff player_id must be positive")
+        if self.kickoff_at.tzinfo is None:
+            raise ValueError("player kickoff must be timezone-aware")
+
+
+@dataclass(frozen=True, slots=True)
 class LeagueStatus:
     current_week: int
     season_state: str
@@ -111,6 +130,7 @@ class LeagueSnapshot:
     transactions: tuple[Transaction, ...]
     free_agents: tuple[FreeAgent, ...]
     source_timestamp: datetime
+    player_kickoffs: tuple[PlayerKickoff, ...] = ()
 
     def __post_init__(self) -> None:
         if self.source_timestamp.tzinfo is None:

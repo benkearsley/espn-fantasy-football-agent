@@ -9,6 +9,7 @@ from fantasy_football.contracts import (
     LeagueSettings,
     LeagueSnapshot,
     LeagueStatus,
+    PlayerKickoff,
     Team,
 )
 from fantasy_football.onboarding import run_onboarding
@@ -34,6 +35,7 @@ def test_onboarding_persists_only_redacted_metadata(tmp_path: Path) -> None:
         transactions=(),
         free_agents=(),
         source_timestamp=datetime(2026, 8, 14, tzinfo=UTC),
+        player_kickoffs=(PlayerKickoff(10, datetime(2026, 8, 16, 17, tzinfo=UTC)),),
     )
     reader = FakeReader(snapshot)
     summary_path = tmp_path / "onboarding-summary.json"
@@ -46,7 +48,11 @@ def test_onboarding_persists_only_redacted_metadata(tmp_path: Path) -> None:
     assert isinstance(reader, ESPNLeagueReader)
     assert reader.reads == 1
     assert summary["owner"]["teams"][0]["roster_size"] == 0
+    assert summary["player_kickoffs"] == [
+        {"player_id": 10, "kickoff_at": "2026-08-16T17:00:00+00:00"}
+    ]
     contents = summary_path.read_text(encoding="utf-8")
     assert "source_timestamp" in contents
+    assert "schedule" not in contents
     assert "espn_s2" not in contents
     assert summary_path.stat().st_mode & 0o777 == 0o600

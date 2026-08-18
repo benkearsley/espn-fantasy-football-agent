@@ -1,5 +1,6 @@
 """Sanitized provider-boundary tests for the ESPN read adapter."""
 
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,17 +18,25 @@ from fantasy_football.espn_adapter import (
 from fantasy_football.secrets import ESPNCredentials, InMemorySecretProvider
 
 
-def _player(player_id: int, name: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        playerId=player_id,
-        name=name,
-        position="QB",
-        proTeam="BUF",
-        lineupSlot="QB",
-        acquisitionType="DRAFT",
-        percent_owned=42.0,
-        active_status="active",
-    )
+def _player(
+    player_id: int,
+    name: str,
+    *,
+    schedule: object | None = None,
+) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "playerId": player_id,
+        "name": name,
+        "position": "QB",
+        "proTeam": "BUF",
+        "lineupSlot": "QB",
+        "acquisitionType": "DRAFT",
+        "percent_owned": 42.0,
+        "active_status": "active",
+    }
+    if schedule is not None:
+        values["schedule"] = schedule
+    return SimpleNamespace(**values)
 
 
 class FakeLeague:
@@ -99,6 +108,106 @@ def test_reader_maps_complete_sanitized_snapshot_and_never_enables_debug() -> No
             "debug": False,
         }
     ]
+
+
+def test_reader_normalizes_current_week_roster_kickoffs_and_deduplicates() -> None:
+    aware = datetime(2026, 9, 13, 16, 25, tzinfo=timezone(timedelta(hours=-4)))
+    local_naive = datetime(2026, 9, 13, 11, 30)
+    duplicate = _player(
+        12,
+        "Duplicate Example",
+        schedule={
+            1: {"team": "BUF", "date": aware},
+            "1": {"team": "BUF", "date": aware},
+        },
+    )
+    league = FakeLeague()
+    league.teams = [
+        SimpleNamespace(
+            team_id=1,
+            team_name="Ben's Team",
+            owners=[{"displayName": "Ben"}],
+            wins=1,
+            losses=0,
+            ties=0,
+            roster=[
+                _player(
+                    10,
+                    "Aware Example",
+                    schedule={
+                        1: {"team": "BUF", "date": aware},
+                        2: {
+                            "team": "BUF",
+                            "date": datetime(2026, 9, 20, 12, 0),
+                        },
+                    },
+                ),
+                _player(
+                    11,
+                    "Local Example",
+                    schedule={1: {"team": "BUF", "date": local_naive}},
+                ),
+                duplicate,
+                duplicate,
+            ],
+        )
+    ]
+
+    snapshot = EspnApiReader(
+        _config(),
+        InMemorySecretProvider(ESPNCredentials("s2-secret", "swid-secret")),
+        league_factory=lambda **kwargs: league,
+    ).read_snapshot()
+
+    assert [(item.player_id, item.kickoff_at) for item in snapshot.player_kickoffs] == [
+        (10, aware.astimezone(UTC)),
+        (11, local_naive.astimezone(UTC)),
+        (12, aware.astimezone(UTC)),
+    ]
+
+
+def test_reader_omits_missing_bye_malformed_and_ambiguous_schedule_facts() -> None:
+    date_one = datetime(2026, 9, 13, 12, tzinfo=UTC)
+    date_two = datetime(2026, 9, 13, 15, tzinfo=UTC)
+    players = [
+        _player(20, "Missing Example"),
+        _player(21, "Bye Example", schedule={1: {"team": "BYE"}}),
+        _player(
+            22,
+            "Malformed Example",
+            schedule={1: {"team": "BUF", "date": "bad"}},
+        ),
+        _player(23, "Malformed Container", schedule=[]),
+        _player(24, "Other Week", schedule={2: {"team": "BUF", "date": date_one}}),
+        _player(
+            25,
+            "Ambiguous Example",
+            schedule={
+                1: {"team": "BUF", "date": date_one},
+                "1": {"team": "BUF", "date": date_two},
+            },
+        ),
+    ]
+    league = FakeLeague()
+    league.teams = [
+        SimpleNamespace(
+            team_id=1,
+            team_name="Ben's Team",
+            owners=[{"displayName": "Ben"}],
+            wins=1,
+            losses=0,
+            ties=0,
+            roster=players,
+        )
+    ]
+
+    snapshot = EspnApiReader(
+        _config(),
+        InMemorySecretProvider(ESPNCredentials("s2-secret", "swid-secret")),
+        league_factory=lambda **kwargs: league,
+    ).read_snapshot()
+
+    assert snapshot.player_kickoffs == ()
 
 
 @pytest.mark.parametrize(

@@ -30,3 +30,22 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## Telegram delivery
+
+Telegram delivery is implemented by `fantasy_football.telegram.TelegramTransport`
+using the generic Bot API `sendMessage` method. Agents may invoke live delivery
+only as an explicitly requested runtime operation with network access and the
+following environment configuration:
+
+- `FFM_TELEGRAM_BOT_TOKEN`: the bot token, kept outside Git and logs;
+- `FFM_TELEGRAM_ALLOWED_USER_ID`: Ben's Telegram user ID for command allowlisting;
+- `FFM_TELEGRAM_CHAT_ID`: optional default destination chat ID for notifications;
+- `FFM_TELEGRAM_POLL_TIMEOUT`: optional long-poll timeout from 0 through 50 seconds.
+
+Use `TelegramTransport.send_message(chat_id, text)` for arbitrary text and pass
+the destination chat ID explicitly when sending. Never print, persist, or commit
+the token; do not send a real message during tests or unattended implementation
+work. Tests must inject `TelegramTransportProtocol` fakes or intercept request
+construction without making network calls. The optional Codex Telegram app
+connector is not required for this Bot API transport.

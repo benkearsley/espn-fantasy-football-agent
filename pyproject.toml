@@ -8,6 +8,7 @@ license = { text = "Private" }
 authors = [{ name = "Ben Kearsley" }]
 dependencies = [
     "espn-api>=0.44,<1",
+    "openai>=1.0,<3",
 ]
 
 [dependency-groups]
